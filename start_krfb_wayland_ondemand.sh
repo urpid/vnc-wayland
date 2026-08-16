@@ -51,15 +51,35 @@ clear_krfb_portal_restore_token() {
 start_krfb_in_portal_scope() {
   local mode="$1"
   # xdg-desktop-portal derives the host application ID from this scope name.
+  # Qt must not register the already associated D-Bus connection a second time.
   local scope="app-KDE-org.kde.krfb-$BASHPID"
 
   if [[ "$mode" == "nodialog" ]]; then
     systemd-run --user --scope --collect --quiet --unit="$scope" \
+      --setenv=QT_NO_XDG_DESKTOP_PORTAL=1 \
       krfb --nodialog </dev/null >/dev/null &
   else
-    systemd-run --user --scope --collect --quiet --unit="$scope" krfb &
+    systemd-run --user --scope --collect --quiet --unit="$scope" \
+      --setenv=QT_NO_XDG_DESKTOP_PORTAL=1 krfb &
   fi
   KRFB_LAUNCHER_PID=$!
+}
+
+describe_outputs() {
+  local path status enabled dpms
+  local description=""
+
+  shopt -s nullglob
+  for path in /sys/class/drm/card*-*; do
+    [[ -r "$path/status" && -r "$path/enabled" && -r "$path/dpms" ]] || continue
+    status="$(<"$path/status")"
+    enabled="$(<"$path/enabled")"
+    dpms="$(<"$path/dpms")"
+    description+="${description:+,}${path##*/}:$status/$enabled/$dpms"
+  done
+  shopt -u nullglob
+
+  printf '%s' "${description:-none}"
 }
 
 outputs_active() {
@@ -277,6 +297,22 @@ run_krfb_server() {
 
 run_connection_session() {
   local start_mode="$1"
+  local client_address="${SOCAT_PEERADDR:-${REMOTE_ADDR:-unknown}}"
+  local client_port="${SOCAT_PEERPORT:-${REMOTE_PORT:-unknown}}"
+  local client="$client_address:$client_port"
+  if [[ "$client_address" == *:* ]]; then
+    client="[$client_address]:$client_port"
+  fi
+
+  local outputs_were_active=0
+  local monitor_state=sleeping
+  if outputs_active; then
+    outputs_were_active=1
+    monitor_state=active
+  fi
+
+  printf '%s VNC connection accepted: client=%s mode=%s monitor=%s outputs=%s\n' \
+    "$(date --iso-8601=seconds)" "$client" "$start_mode" "$monitor_state" "$(describe_outputs)" >&2
 
   require_commands krfb kwriteconfig6 pgrep pkill qdbus6 socat ss systemd-run
   if [[ "$start_mode" == "systemd" ]]; then
@@ -297,10 +333,7 @@ run_connection_session() {
   fi
   configure_krfb_port
 
-  local outputs_were_active=0
-  if outputs_active; then
-    outputs_were_active=1
-  else
+  if (( outputs_were_active == 0 )); then
     echo "Monitor is sleeping; sending wake request and waiting for DPMS On." >&2
   fi
 

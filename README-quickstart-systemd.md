@@ -50,7 +50,7 @@ systemctl --user daemon-reload
 ./start_krfb_wayland_ondemand.sh --setup
 ```
 
-Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Setup und automatische Starts laufen mit der Portal-Anwendungsidentitaet `org.kde.krfb`. Das KDE-Portal erzeugt dadurch einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
+Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Setup und automatische Starts laufen mit der Portal-Anwendungsidentitaet `org.kde.krfb`. Die automatische App-ID-Erkennung der krfb-Scope wird verwendet; die zusaetzliche Qt-Portalregistrierung ist fuer `krfb` deaktiviert, damit dieselbe D-Bus-Verbindung nicht doppelt registriert wird. Das KDE-Portal erzeugt dadurch einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
 
 Das aktuelle KDE-Portal bietet fuer die Remote-Desktop-Sitzung von `krfb` keine Monitorauswahl an. Bei mehreren Monitoren uebertraegt `krfb` die gesamte Arbeitsflaeche.
 
@@ -106,3 +106,5 @@ journalctl --user -u krfb-wayland.socket
 journalctl --user -u krfb-wayland-server.service
 journalctl --user -u 'krfb-wayland@*'
 ```
+
+Fuer jede angenommene VNC-Verbindung protokolliert `krfb-wayland@.service` den Zeitpunkt, die Client-Adresse, den Startmodus und den Zustand aller DRM-Ausgaenge vor dem Wake-Befehl.

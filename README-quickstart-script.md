@@ -53,7 +53,7 @@ sudo ufw deny 5901/tcp
 
 ## Listener starten
 
-Die Script-Version installiert und aktiviert keine systemd-Unit und benoetigt keine symbolischen Links. Sie startet nur den jeweiligen `krfb`-Prozess mit `systemd-run` in einer kurzlebigen Scope-Unit, damit das KDE-Portal bei Setup und Normalbetrieb dieselbe Anwendungsidentitaet erkennt. Die Scope verschwindet nach dem Beenden von `krfb`. Port `5900` darf nicht gleichzeitig von einem anderen Listener belegt sein.
+Die Script-Version installiert und aktiviert keine systemd-Unit und benoetigt keine symbolischen Links. Sie startet nur den jeweiligen `krfb`-Prozess mit `systemd-run` in einer kurzlebigen Scope-Unit, damit das KDE-Portal bei Setup und Normalbetrieb dieselbe Anwendungsidentitaet erkennt. Die Scope verschwindet nach dem Beenden von `krfb`. Die automatische App-ID-Erkennung der Scope wird verwendet; die zusaetzliche Qt-Portalregistrierung ist fuer `krfb` deaktiviert, damit dieselbe D-Bus-Verbindung nicht doppelt registriert wird. Port `5900` darf nicht gleichzeitig von einem anderen Listener belegt sein.
 
 ```bash
 ./start_krfb_wayland_listener.sh
@@ -98,4 +98,10 @@ Bei manuellem Start schreibt der Listener direkt ins Terminal. Statuspruefung fu
 pgrep -af start_krfb_wayland_listener.sh
 pgrep -a -x krfb
 ss -ltnp 'sport = :5900'
+```
+
+Fuer jede angenommene VNC-Verbindung protokolliert der Listener den Zeitpunkt, die Client-Adresse, den Startmodus und den Zustand aller DRM-Ausgaenge vor dem Wake-Befehl. Beim Plasma-Autostart stehen diese Eintraege im Journal:
+
+```bash
+journalctl --user -u 'app-start_krfb_wayland_listener.sh@autostart.service'
 ```
