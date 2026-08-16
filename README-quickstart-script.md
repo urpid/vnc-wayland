@@ -1,102 +1,99 @@
 # Quickstart mit Script-Listener
 
-## 1. Voraussetzungen
+## Voraussetzungen
 
-- laufende grafische Benutzer-Session
-- KDE Plasma unter Wayland
-- Python 3
-- funktionierendes `xdg-desktop-portal-kde` / PipeWire-Setup
-- `socat` fuer den Listener
+- laufende KDE-Plasma-Sitzung unter Wayland
+- funktionierendes `xdg-desktop-portal-kde`-/PipeWire-Setup
 
-## 2. Pakete installieren
+## Pakete installieren
 
 ```bash
-sudo pacman -S --needed x11vnc xorg-xrandr xorg-setxkbmap qt6-tools libkscreen python-dbus python-gobject python-evdev gstreamer gst-plugins-base-libs gst-plugin-pipewire pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat
+sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng
 ```
 
-## 3. In den Ordner wechseln
+## Scripts ausfuehrbar machen
 
 ```bash
-cd ~/Documents/x11vnc-wayland-bridge
+chmod +x start_krfb_wayland_ondemand.sh
+chmod +x start_krfb_wayland_listener.sh
 ```
 
-Zentrale Pfade, Ports und Log-Limits stehen in [load-vars.sh](/home/worker/Documents/x11vnc-wayland-bridge/load-vars.sh).
+Die Ports und Wartezeiten stehen in [load-vars.sh](load-vars.sh). Voreingestellt sind `5900` oeffentlich und `5901` fuer `krfb`.
 
-## 4. Scripts ausfuehrbar machen
+## krfb einmalig einrichten
 
 ```bash
-chmod +x start_x11vnc_wayland_listener.sh
-chmod +x start_x11vnc_wayland_ondemand.sh
-chmod +x run_component.sh
-chmod +x portal_rawfb_bridge.py
-chmod +x x11vnc_pipeinput.py
-chmod +x pipe-logs.py
+./start_krfb_wayland_ondemand.sh --setup
 ```
 
-## 5. Firewall freigeben
+Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Das KDE-Portal erzeugt beim Start einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
+
+Das aktuelle KDE-Portal bietet fuer die Remote-Desktop-Sitzung von `krfb` keine Monitorauswahl an. Bei mehreren Monitoren uebertraegt `krfb` die gesamte Arbeitsflaeche.
+
+In `krfb`:
+
+- Freigabe der Arbeitsflaeche aktivieren
+- Steuerung durch Maus und Tastatur erlauben
+
+Die gewuenschte Passwort-Deaktivierung ist noch nicht umgesetzt. Das unveraenderte `krfb` erzwingt VNC-Authentifizierung und bietet dafuer keine Einstellung. Ohne Quellcode-Aenderung verlangt es entweder sein angezeigtes Sitzungskennwort mit lokaler Bestaetigung oder ein Passwort fuer den unbeaufsichtigten Zugriff.
+
+Danach das `krfb`-Fenster mit **X** schliessen. Im Setup-Modus beendet das den Prozess vollstaendig. Beim normalen Start durch den Listener wird `krfb` ohne Hauptfenster im Tray gestartet.
+
+## Firewall konfigurieren
+
+`krfb` bindet seinen internen Port an alle Netzwerkadressen. Deshalb muss `5901` von aussen gesperrt bleiben; nur der Wake-Listener auf `5900` soll erreichbar sein.
 
 Falls `ufw` aktiv ist:
 
 ```bash
 sudo ufw allow 5900/tcp
+sudo ufw deny 5901/tcp
 ```
 
-## 6. uinput fuer Maus und Tastatur pruefen
+## Listener starten
 
-Fuer Maus- und Tastatureingaben muss `/dev/uinput` vorhanden und fuer den Benutzer beschreibbar sein.
+Die Script-Version benoetigt keine systemd-Unit und keine symbolischen Links. Port `5900` darf nicht gleichzeitig von einem anderen Listener belegt sein.
 
 ```bash
-ls -l /dev/uinput
+./start_krfb_wayland_listener.sh
 ```
 
-Wenn `/dev/uinput` fehlt:
+Optional kann der oeffentliche Listener anders gebunden werden:
 
 ```bash
-sudo modprobe uinput
+LISTEN_HOST=127.0.0.1 LISTEN_PORT=5902 ./start_krfb_wayland_listener.sh
 ```
 
-## 7. Bei Bedarf State leeren
+Der interne `krfb`-Port bleibt dabei `5901`.
+
+## Listener automatisch mit Plasma starten
+
+Unter **Systemeinstellungen -> Autostart -> Hinzufuegen -> Anmeldeskript hinzufuegen** die Datei `start_krfb_wayland_listener.sh` direkt aus diesem Projektordner auswaehlen.
+
+Die Script-Version startet `krfb` bei der ersten VNC-Verbindung direkt mit `--nodialog` im Tray. Sie verwendet weder `krfb-wayland-server.service` noch eine andere systemd-Unit. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
+
+## Verbinden
+
+Mit dem VNC-Client auf `host:5900` oder den gesetzten `LISTEN_PORT` verbinden.
+
+Der Ablauf pro Verbindung ist:
+
+- `socat` nimmt die Verbindung an.
+- Das Script sendet immer einen Wake-Impuls gegen eine moegliche Abdunkelung.
+- War mindestens ein aktivierter Monitor in DPMS-Standby, wartet das Script, bis alle aktivierten Monitore `DPMS On` melden.
+- Nach einem Standby startet das Script `krfb` neu, damit eine neue PipeWire-Sitzung entsteht.
+- War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
+- `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
+- Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.
+
+Die Wake-Pruefung gilt fuer alle verbundenen und aktivierten DRM-Ausgaenge.
+
+## Status und Logs
+
+Bei manuellem Start schreibt der Listener direkt ins Terminal. Statuspruefung fuer Listener und `krfb`:
 
 ```bash
-./start_x11vnc_wayland_ondemand.sh --clear
-```
-
-Das loescht alle Dateien direkt in `~/.local/state/x11vnc-wayland-bridge`, also auch:
-- `pwfb.meta`
-- `pwfb.restore_token`
-- alle Logs
-
-## 8. Listener starten
-
-```bash
-./start_x11vnc_wayland_listener.sh
-```
-
-Optional:
-
-```bash
-LISTEN_HOST=127.0.0.1 LISTEN_PORT=5901 ./start_x11vnc_wayland_listener.sh
-```
-
-## 9. Verbinden
-
-Mit dem VNC-Client auf `host:5900` verbinden oder auf den von dir gewaehlten Port.
-
-Dabei gilt:
-- `socat` lauscht auf dem Port
-- pro Verbindung startet es intern denselben `--inetd`-Pfad
-- wenn `pwfb.meta` oder `pwfb.restore_token` fehlen, oeffnet diese erste Verbindung automatisch den KDE-Freigabedialog
-- `pwfb.meta` und `pwfb.restore_token` liegen beide dauerhaft im State-Verzeichnis
-- die Geometrie der gespeicherten Outputs wird pro Verbindung frisch aus `xrandr` gelesen
-- die eingehende Verbindung versucht den ausgewaehlten Monitor zuerst aufzuwecken
-- `listener`, `inetd`, `bridge` und `pipeinput` schreiben jeweils in eine feste Logdatei mit Groessenlimit
-- wenn der ausgewaehlte Monitor schlaeft, wartet die Verbindung auf `dpms=On`
-
-## 10. Logs
-
-```bash
-tail -f ~/.local/state/x11vnc-wayland-bridge/listener.log
-tail -f ~/.local/state/x11vnc-wayland-bridge/inetd.log
-tail -f ~/.local/state/x11vnc-wayland-bridge/bridge.log
-tail -f ~/.local/state/x11vnc-wayland-bridge/pipeinput.log
+pgrep -af start_krfb_wayland_listener.sh
+pgrep -a -x krfb
+ss -ltnp 'sport = :5900'
 ```

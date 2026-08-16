@@ -1,0 +1,13 @@
+[Unit]
+Description=Krfb Wayland connection %i
+After=graphical-session.target
+Requires=graphical-session.target
+PartOf=krfb-wayland.socket
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/krfb-wayland/start_krfb_wayland_ondemand.sh --socket
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+TimeoutStopSec=5

@@ -1,101 +1,107 @@
 # Quickstart mit systemd --user
 
-## 1. Voraussetzungen
+## Voraussetzungen
 
-- laufende grafische Benutzer-Session
-- KDE Plasma unter Wayland
-- Python 3
+- laufende KDE-Plasma-Sitzung unter Wayland
 - `systemd --user`
-- funktionierendes `xdg-desktop-portal-kde` / PipeWire-Setup
+- funktionierendes `xdg-desktop-portal-kde`-/PipeWire-Setup
 
-## 2. Pakete installieren
-
-```bash
-sudo pacman -S --needed x11vnc xorg-xrandr xorg-setxkbmap qt6-tools libkscreen python-dbus python-gobject python-evdev gstreamer gst-plugins-base-libs gst-plugin-pipewire pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde
-```
-
-## 3. In den Ordner wechseln
+## Pakete installieren
 
 ```bash
-cd ~/Documents/x11vnc-wayland-bridge
+sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng
 ```
 
-Zentrale Pfade, Ports und Log-Limits stehen in [load-vars.sh](/home/worker/Documents/x11vnc-wayland-bridge/load-vars.sh).
-
-## 4. Scripts ausfuehrbar machen
+## Scripts ausfuehrbar machen
 
 ```bash
-chmod +x start_x11vnc_wayland_listener.sh
-chmod +x start_x11vnc_wayland_ondemand.sh
-chmod +x run_component.sh
-chmod +x portal_rawfb_bridge.py
-chmod +x x11vnc_pipeinput.py
-chmod +x pipe-logs.py
+chmod +x start_krfb_wayland_ondemand.sh
+chmod +x start_krfb_wayland_listener.sh
 ```
 
-## 5. Firewall freigeben
+Der interne `krfb`-Port und die Wartezeiten stehen in [load-vars.sh](load-vars.sh). Der oeffentliche systemd-Port steht in [krfb-wayland.socket](krfb-wayland.socket). Voreingestellt sind `5900` oeffentlich und `5901` fuer `krfb`.
+
+## Alte x11vnc-Units deaktivieren
+
+Falls die vorherige Version installiert war:
+
+```bash
+systemctl --user disable --now x11vnc-wayland.socket
+rm -f ~/.config/systemd/user/x11vnc-wayland.socket
+rm -f ~/.config/systemd/user/x11vnc-wayland@.service
+```
+
+## Projekt und Units verlinken
+
+Die Units verwenden den festen Link `~/.local/lib/krfb-wayland`, damit das Projekt selbst an einem beliebigen Ort liegen kann.
+
+```bash
+mkdir -p ~/.local/lib ~/.config/systemd/user
+ln -sfnT "$PWD" ~/.local/lib/krfb-wayland
+ln -sf ~/.local/lib/krfb-wayland/krfb-wayland-server.service ~/.config/systemd/user/krfb-wayland-server.service
+ln -sf ~/.local/lib/krfb-wayland/krfb-wayland.socket ~/.config/systemd/user/krfb-wayland.socket
+ln -sf ~/.local/lib/krfb-wayland/krfb-wayland@.service ~/.config/systemd/user/krfb-wayland@.service
+systemctl --user daemon-reload
+```
+
+## krfb einmalig einrichten
+
+```bash
+./start_krfb_wayland_ondemand.sh --setup
+```
+
+Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Das KDE-Portal erzeugt beim Start einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
+
+Das aktuelle KDE-Portal bietet fuer die Remote-Desktop-Sitzung von `krfb` keine Monitorauswahl an. Bei mehreren Monitoren uebertraegt `krfb` die gesamte Arbeitsflaeche.
+
+In `krfb`:
+
+- Freigabe der Arbeitsflaeche aktivieren
+- Steuerung durch Maus und Tastatur erlauben
+
+Die gewuenschte Passwort-Deaktivierung ist noch nicht umgesetzt. Das unveraenderte `krfb` erzwingt VNC-Authentifizierung und bietet dafuer keine Einstellung. Ohne Quellcode-Aenderung verlangt es entweder sein angezeigtes Sitzungskennwort mit lokaler Bestaetigung oder ein Passwort fuer den unbeaufsichtigten Zugriff.
+
+Danach das `krfb`-Fenster mit **X** schliessen. Im Setup-Modus beendet das den Prozess vollstaendig. Der Verbindungs-Listener startet `krfb` spaeter ohne Hauptfenster im Tray als `krfb-wayland-server.service`.
+
+## Firewall konfigurieren
+
+`krfb` bindet seinen internen Port an alle Netzwerkadressen. Deshalb muss `5901` von aussen gesperrt bleiben; nur der Wake-Listener auf `5900` soll erreichbar sein.
 
 Falls `ufw` aktiv ist:
 
 ```bash
 sudo ufw allow 5900/tcp
+sudo ufw deny 5901/tcp
 ```
 
-## 6. uinput fuer Maus und Tastatur pruefen
-
-Fuer Maus- und Tastatureingaben muss `/dev/uinput` vorhanden und fuer den Benutzer beschreibbar sein.
+## Socket aktivieren
 
 ```bash
-ls -l /dev/uinput
+systemctl --user enable --now krfb-wayland.socket
 ```
 
-Wenn `/dev/uinput` fehlt:
-
-```bash
-sudo modprobe uinput
-```
-
-## 7. Bei Bedarf State leeren
-
-```bash
-./start_x11vnc_wayland_ondemand.sh --clear
-```
-
-Das loescht alle Dateien direkt in `~/.local/state/x11vnc-wayland-bridge`, also auch:
-- `pwfb.meta`
-- `pwfb.restore_token`
-- alle Logs
-
-## 8. Socket aktivieren
-
-```bash
-mkdir -p ~/.config/systemd/user
-ln -sf ~/Documents/x11vnc-wayland-bridge/x11vnc-wayland.socket ~/.config/systemd/user/x11vnc-wayland.socket
-ln -sf ~/Documents/x11vnc-wayland-bridge/x11vnc-wayland@.service ~/.config/systemd/user/x11vnc-wayland@.service
-systemctl --user daemon-reload
-systemctl --user enable --now x11vnc-wayland.socket
-```
-
-## 9. Verbinden
+## Verbinden
 
 Mit dem VNC-Client auf `host:5900` verbinden.
 
-Dabei gilt:
-- `x11vnc` startet erst bei echter Verbindung
-- wenn `pwfb.meta` oder `pwfb.restore_token` fehlen, oeffnet diese erste Verbindung automatisch den KDE-Freigabedialog
-- `pwfb.meta` und `pwfb.restore_token` liegen beide dauerhaft im State-Verzeichnis
-- die Geometrie der gespeicherten Outputs wird pro Verbindung frisch aus `xrandr` gelesen
-- die eingehende Verbindung versucht den ausgewaehlten Monitor zuerst aufzuwecken
-- `inetd`, `bridge` und `pipeinput` schreiben jeweils in eine feste Logdatei mit Groessenlimit
-- wenn der ausgewaehlte Monitor schlaeft, wartet die Verbindung auf `dpms=On`
+Der Ablauf pro Verbindung ist:
 
-## 10. Logs
+- Der systemd-Socket nimmt die Verbindung an.
+- Das Script sendet immer einen Wake-Impuls gegen eine moegliche Abdunkelung.
+- War mindestens ein aktivierter Monitor in DPMS-Standby, wartet das Script, bis alle aktivierten Monitore `DPMS On` melden.
+- Nach einem Standby startet das Script `krfb` neu, damit eine neue PipeWire-Sitzung entsteht.
+- War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
+- `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
+- Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.
+
+Die Wake-Pruefung gilt fuer alle verbundenen und aktivierten DRM-Ausgaenge.
+
+## Status und Logs
 
 ```bash
-systemctl --user status x11vnc-wayland.socket
-journalctl --user -u x11vnc-wayland.socket
-journalctl --user -u 'x11vnc-wayland@*'
-tail -f ~/.local/state/x11vnc-wayland-bridge/inetd.log
-tail -f ~/.local/state/x11vnc-wayland-bridge/bridge.log
-tail -f ~/.local/state/x11vnc-wayland-bridge/pipeinput.log
+systemctl --user status krfb-wayland.socket
+systemctl --user status krfb-wayland-server.service
+journalctl --user -u krfb-wayland.socket
+journalctl --user -u krfb-wayland-server.service
+journalctl --user -u 'krfb-wayland@*'
 ```

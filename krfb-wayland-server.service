@@ -1,0 +1,10 @@
+[Unit]
+Description=Krfb Wayland server
+After=graphical-session.target
+Requires=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/krfb --nodialog
+TimeoutStopSec=5

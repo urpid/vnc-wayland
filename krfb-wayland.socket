@@ -1,5 +1,5 @@
 [Unit]
-Description=x11vnc Wayland socket
+Description=Krfb Wayland wake socket
 
 [Socket]
 ListenStream=5900
