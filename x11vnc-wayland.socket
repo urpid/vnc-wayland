@@ -1,0 +1,12 @@
+[Unit]
+Description=x11vnc Wayland socket
+
+[Socket]
+ListenStream=5900
+Accept=yes
+NoDelay=true
+Backlog=1
+MaxConnections=1
+
+[Install]
+WantedBy=sockets.target
