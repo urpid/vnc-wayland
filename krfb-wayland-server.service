@@ -6,5 +6,5 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/krfb --nodialog
-TimeoutStopSec=5
+ExecStart=%h/.local/lib/krfb-wayland/start_krfb_wayland_ondemand.sh --server
+TimeoutStopSec=15

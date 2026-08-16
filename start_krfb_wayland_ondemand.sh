@@ -48,6 +48,20 @@ clear_krfb_portal_restore_token() {
     --delete ''
 }
 
+start_krfb_in_portal_scope() {
+  local mode="$1"
+  # xdg-desktop-portal derives the host application ID from this scope name.
+  local scope="app-KDE-org.kde.krfb-$BASHPID"
+
+  if [[ "$mode" == "nodialog" ]]; then
+    systemd-run --user --scope --collect --quiet --unit="$scope" \
+      krfb --nodialog </dev/null >/dev/null &
+  else
+    systemd-run --user --scope --collect --quiet --unit="$scope" krfb &
+  fi
+  KRFB_LAUNCHER_PID=$!
+}
+
 outputs_active() {
   local path status enabled dpms
   local found=0
@@ -121,7 +135,7 @@ krfb_port_ready() {
 
 wait_for_krfb() {
   local start_mode="$1"
-  local krfb_pid="${2:-}"
+  local launcher_pid="${2:-}"
   local attempts=$((KRFB_START_TIMEOUT * 4))
   local attempt
 
@@ -129,7 +143,7 @@ wait_for_krfb() {
     if krfb_port_ready; then
       return 0
     fi
-    if [[ "$start_mode" == "direct" ]] && ! kill -0 "$krfb_pid" 2>/dev/null; then
+    if [[ "$start_mode" == "direct" ]] && ! kill -0 "$launcher_pid" 2>/dev/null; then
       echo "krfb exited before port $KRFB_PORT became ready" >&2
       return 1
     fi
@@ -145,6 +159,23 @@ wait_for_krfb() {
 }
 
 stop_krfb_processes() {
+  if ! pgrep -u "$EUID" -x krfb >/dev/null; then
+    return 0
+  fi
+
+  if qdbus6 \
+    org.kde.krfb \
+    /MainApplication \
+    org.qtproject.Qt.QCoreApplication.quit >/dev/null 2>&1; then
+    local attempt
+    for ((attempt = 0; attempt < 20; attempt++)); do
+      if ! pgrep -u "$EUID" -x krfb >/dev/null; then
+        return 0
+      fi
+      sleep 0.25
+    done
+  fi
+
   pkill -TERM -u "$EUID" -x krfb 2>/dev/null || true
 
   local attempt
@@ -179,16 +210,16 @@ restart_krfb() {
   fi
 
   stop_krfb_processes
-  krfb --nodialog </dev/null >/dev/null &
-  local krfb_pid=$!
-  if ! wait_for_krfb direct "$krfb_pid"; then
+  start_krfb_in_portal_scope nodialog
+  local launcher_pid="$KRFB_LAUNCHER_PID"
+  if ! wait_for_krfb direct "$launcher_pid"; then
     stop_krfb_processes
     return 1
   fi
 }
 
 run_setup() {
-  require_commands krfb kwriteconfig6 pgrep pkill qdbus6
+  require_commands krfb kwriteconfig6 pgrep pkill qdbus6 systemd-run
   validate_port KRFB_PORT "$KRFB_PORT"
   stop_krfb_processes
   configure_krfb_port
@@ -215,13 +246,13 @@ run_setup() {
     return 1
   fi
 
-  krfb &
-  local krfb_pid=$!
-  trap "kill $krfb_pid 2>/dev/null || true; qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript $kwin_plugin >/dev/null 2>&1 || true" INT TERM EXIT
+  start_krfb_in_portal_scope dialog
+  local launcher_pid="$KRFB_LAUNCHER_PID"
+  trap 'stop_krfb_processes; qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$kwin_plugin" >/dev/null 2>&1 || true' INT TERM EXIT
 
   local status=0
   local unload_result
-  wait "$krfb_pid" || status=$?
+  wait "$launcher_pid" || status=$?
   if ! unload_result="$(qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$kwin_plugin")" || [[ "$unload_result" != "true" ]]; then
     echo "could not unload the KWin setup close watcher" >&2
     status=1
@@ -230,10 +261,24 @@ run_setup() {
   return "$status"
 }
 
+run_krfb_server() {
+  require_commands krfb kwriteconfig6 pgrep pkill qdbus6 systemd-run
+  validate_port KRFB_PORT "$KRFB_PORT"
+  configure_krfb_port
+
+  trap 'stop_krfb_processes; exit 0' INT TERM
+  start_krfb_in_portal_scope nodialog
+
+  local status=0
+  wait "$KRFB_LAUNCHER_PID" || status=$?
+  trap - INT TERM
+  return "$status"
+}
+
 run_connection_session() {
   local start_mode="$1"
 
-  require_commands krfb kwriteconfig6 pgrep pkill qdbus6 socat ss
+  require_commands krfb kwriteconfig6 pgrep pkill qdbus6 socat ss systemd-run
   if [[ "$start_mode" == "systemd" ]]; then
     require_commands systemctl
   fi
@@ -274,7 +319,7 @@ run_connection_session() {
 }
 
 usage() {
-  printf 'usage: %s [--setup|--script|--socket]\n' "$0" >&2
+  printf 'usage: %s [--setup|--script|--socket|--server]\n' "$0" >&2
 }
 
 case "${1:-}" in
@@ -292,6 +337,11 @@ case "${1:-}" in
     shift
     [[ "$#" -eq 0 ]] || { usage; exit 2; }
     run_connection_session systemd
+    ;;
+  --server)
+    shift
+    [[ "$#" -eq 0 ]] || { usage; exit 2; }
+    run_krfb_server
     ;;
   *)
     usage

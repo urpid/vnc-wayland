@@ -9,7 +9,7 @@
 ## Pakete installieren
 
 ```bash
-sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng
+sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng systemd
 ```
 
 ## Scripts ausfuehrbar machen
@@ -50,7 +50,7 @@ systemctl --user daemon-reload
 ./start_krfb_wayland_ondemand.sh --setup
 ```
 
-Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Das KDE-Portal erzeugt beim Start einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
+Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Setup und automatische Starts laufen mit der Portal-Anwendungsidentitaet `org.kde.krfb`. Das KDE-Portal erzeugt dadurch einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
 
 Das aktuelle KDE-Portal bietet fuer die Remote-Desktop-Sitzung von `krfb` keine Monitorauswahl an. Bei mehreren Monitoren uebertraegt `krfb` die gesamte Arbeitsflaeche.
 
@@ -90,6 +90,7 @@ Der Ablauf pro Verbindung ist:
 - Das Script sendet immer einen Wake-Impuls gegen eine moegliche Abdunkelung.
 - War mindestens ein aktivierter Monitor in DPMS-Standby, wartet das Script, bis alle aktivierten Monitore `DPMS On` melden.
 - Nach einem Standby startet das Script `krfb` neu, damit eine neue PipeWire-Sitzung entsteht.
+- Vor einem Neustart beendet das Script `krfb` sauber ueber D-Bus, damit der aktuelle Portal-Restore-Token gespeichert wird. Nur wenn das nicht funktioniert, folgen `TERM` und danach `KILL`.
 - War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
 - `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
 - Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.

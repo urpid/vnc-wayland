@@ -3,12 +3,13 @@
 ## Voraussetzungen
 
 - laufende KDE-Plasma-Sitzung unter Wayland
+- laufendes `systemd --user` fuer die kurzlebige krfb-Scope
 - funktionierendes `xdg-desktop-portal-kde`-/PipeWire-Setup
 
 ## Pakete installieren
 
 ```bash
-sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng
+sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng systemd
 ```
 
 ## Scripts ausfuehrbar machen
@@ -26,7 +27,7 @@ Die Ports und Wartezeiten stehen in [load-vars.sh](load-vars.sh). Voreingestellt
 ./start_krfb_wayland_ondemand.sh --setup
 ```
 
-Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Das KDE-Portal erzeugt beim Start einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
+Der Setup-Befehl loescht zuerst den bisherigen Portal-Restore-Token von `krfb`. Setup und automatische Starts laufen mit der Portal-Anwendungsidentitaet `org.kde.krfb`. Das KDE-Portal erzeugt dadurch einen neuen Token, den `krfb` bei seinen automatischen Neustarts wiederverwendet.
 
 Das aktuelle KDE-Portal bietet fuer die Remote-Desktop-Sitzung von `krfb` keine Monitorauswahl an. Bei mehreren Monitoren uebertraegt `krfb` die gesamte Arbeitsflaeche.
 
@@ -52,7 +53,7 @@ sudo ufw deny 5901/tcp
 
 ## Listener starten
 
-Die Script-Version benoetigt keine systemd-Unit und keine symbolischen Links. Port `5900` darf nicht gleichzeitig von einem anderen Listener belegt sein.
+Die Script-Version installiert und aktiviert keine systemd-Unit und benoetigt keine symbolischen Links. Sie startet nur den jeweiligen `krfb`-Prozess mit `systemd-run` in einer kurzlebigen Scope-Unit, damit das KDE-Portal bei Setup und Normalbetrieb dieselbe Anwendungsidentitaet erkennt. Die Scope verschwindet nach dem Beenden von `krfb`. Port `5900` darf nicht gleichzeitig von einem anderen Listener belegt sein.
 
 ```bash
 ./start_krfb_wayland_listener.sh
@@ -70,7 +71,7 @@ Der interne `krfb`-Port bleibt dabei `5901`.
 
 Unter **Systemeinstellungen -> Autostart -> Hinzufuegen -> Anmeldeskript hinzufuegen** die Datei `start_krfb_wayland_listener.sh` direkt aus diesem Projektordner auswaehlen.
 
-Die Script-Version startet `krfb` bei der ersten VNC-Verbindung direkt mit `--nodialog` im Tray. Sie verwendet weder `krfb-wayland-server.service` noch eine andere systemd-Unit. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
+Die Script-Version startet `krfb` bei der ersten VNC-Verbindung mit `--nodialog` im Tray. Sie verwendet nicht `krfb-wayland-server.service`; lediglich fuer den laufenden `krfb`-Prozess wird eine nicht installierte, kurzlebige Scope-Unit erzeugt. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
 
 ## Verbinden
 
@@ -82,6 +83,7 @@ Der Ablauf pro Verbindung ist:
 - Das Script sendet immer einen Wake-Impuls gegen eine moegliche Abdunkelung.
 - War mindestens ein aktivierter Monitor in DPMS-Standby, wartet das Script, bis alle aktivierten Monitore `DPMS On` melden.
 - Nach einem Standby startet das Script `krfb` neu, damit eine neue PipeWire-Sitzung entsteht.
+- Vor einem Neustart beendet das Script `krfb` sauber ueber D-Bus, damit der aktuelle Portal-Restore-Token gespeichert wird. Nur wenn das nicht funktioniert, folgen `TERM` und danach `KILL`.
 - War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
 - `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
 - Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.
