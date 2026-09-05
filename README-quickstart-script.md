@@ -12,6 +12,36 @@
 sudo pacman -S --needed krfb qt6-tools pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde socat iproute2 procps-ng systemd
 ```
 
+Beachte: `krfb` selbst nicht per `pacman` installieren, sondern das gepinnte Paket aus `packages/` verwenden. Siehe Abschnitt [krfb auf 26.04.3 pinnen](#krfb-auf-26043-pinnen-wichtig).
+
+## krfb auf 26.04.3 pinnen (wichtig)
+
+Seit Version 26.07 bindet das Haupt-Binary von `krfb` den VNC-Port nicht mehr: `RfbServer::start()` ruft `listen` nur auf, wenn das interne `passwordSet`-Flag gesetzt ist. Das normale `krfb` setzt dieses Flag nie (nur `krfb-virtualmonitor`), daher ist der Port nie offen und jede VNC-Verbindung wartet 60 Sekunden und scheitert. Ursache: krfb-Commit `842c91e` (April 2026, BUG 497071), auf `master` nicht gefixt.
+
+Dieses Projekt pinnt deshalb:
+
+- `krfb 26.04.3` (letzte Version ohne den Bug)
+- Paket lokal: `packages/krfb-26.04.3-1-x86_64.pkg.tar.zst`
+- Auto-Upgrade per `pacman -Syu` gesperrt via `IgnorePkg = krfb` in `/etc/pacman.conf`
+
+Nach einer Neuinstallation oder wenn `krfb` versehentlich geupgradet wurde:
+
+```bash
+sudo pacman -U packages/krfb-26.04.3-1-x86_64.pkg.tar.zst
+pkill -x krfb
+```
+
+`IgnorePkg` blockt nur `pacman -Syu`, nicht explizite `pacman -S krfb`-Aufrufe. Die Installationszeile oben darf daher nicht ohne Weiteres ausgefuehrt werden.
+
+Gesundheit pruefen:
+
+```bash
+pacman -Q krfb    # => krfb 26.04.3-1
+ss -ltnp 'sport = :5901'   # nach krfb-Start: LISTEN-Eintrag muss da sein
+```
+
+So bald upstream den Bug behebt: `IgnorePkg = krfb` in `/etc/pacman.conf` entfernen und `krfb` per `pacman -Syu` aktualisieren.
+
 ## Scripts ausfuehrbar machen
 
 ```bash
