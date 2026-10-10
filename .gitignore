@@ -1,0 +1,16 @@
+# Alles ignorieren, nur die Dateien im Projekt-Root erlauben
+*
+
+# Projekt-Root-Dateien
+!.gitignore
+!LICENSE
+!README.md
+!README-quickstart-script.md
+!README-quickstart-systemd.md
+!krfb-wayland-server.service
+!krfb-wayland@.service
+!krfb-wayland.socket
+!load-vars.sh
+!quit_krfb_on_close.js
+!start_krfb_wayland_listener.sh
+!start_krfb_wayland_ondemand.sh
