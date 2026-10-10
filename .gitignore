@@ -14,3 +14,7 @@
 !quit_krfb_on_close.js
 !start_krfb_wayland_listener.sh
 !start_krfb_wayland_ondemand.sh
+
+# Freigabe: gepinntes krfb-Paket (bewusst versioniert, LGPL-2.0-or-later)
+!packages/
+!packages/krfb-26.04.3-1-x86_64.pkg.tar.zst
