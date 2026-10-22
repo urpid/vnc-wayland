@@ -10,4 +10,4 @@ ExecStart=%h/.local/lib/krfb-wayland/start_krfb_wayland_ondemand.sh --socket
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
-TimeoutStopSec=5
+TimeoutStopSec=20

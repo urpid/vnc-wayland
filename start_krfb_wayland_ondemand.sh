@@ -356,9 +356,18 @@ run_connection_session() {
   fi
 
   local proxy_status=0
-  socat STDIO "TCP:${KRFB_HOST}:${KRFB_PORT},nodelay" || proxy_status=$?
+  local proxy_pid=""
+  # Forward termination to the proxy, then continue with KRFB cleanup.
+  trap 'if [[ -n "$proxy_pid" ]]; then kill -TERM "$proxy_pid" 2>/dev/null || true; fi' HUP INT TERM
+  socat STDIO "TCP:${KRFB_HOST}:${KRFB_PORT},nodelay" <&0 &
+  proxy_pid=$!
+  wait "$proxy_pid" || proxy_status=$?
+  while kill -0 "$proxy_pid" 2>/dev/null; do
+    wait "$proxy_pid" || proxy_status=$?
+  done
+  trap - HUP INT TERM
 
-  if [[ "$start_mode" == "direct" ]] && (( krfb_started_by_session )); then
+  if [[ "$start_mode" == "systemd" ]] || (( krfb_started_by_session )); then
     local vnc_connections
     local connections_check_ok=1
     if ! vnc_connections="$(ss -H -tn state established "sport = :$KRFB_PORT")"; then
@@ -375,17 +384,21 @@ run_connection_session() {
       done
 
       if (( connections_check_ok )) && [[ -z "$vnc_connections" ]]; then
-        echo "No VNC clients remain; stopping listener-started krfb." >&2
-        qdbus6 org.kde.krfb /MainApplication org.qtproject.Qt.QCoreApplication.quit >/dev/null 2>&1 || true
-        local attempt
-        for ((attempt = 0; attempt < 20; attempt++)); do
-          if ! systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
-            break
+        echo "No VNC clients remain; stopping $start_mode-managed krfb." >&2
+        if [[ "$start_mode" == "systemd" ]]; then
+          systemctl --user stop "$KRFB_UNIT"
+        else
+          qdbus6 org.kde.krfb /MainApplication org.qtproject.Qt.QCoreApplication.quit >/dev/null 2>&1 || true
+          local attempt
+          for ((attempt = 0; attempt < 20; attempt++)); do
+            if ! systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
+              break
+            fi
+            sleep 0.25
+          done
+          if systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
+            systemctl --user stop "$KRFB_SCOPE_UNIT" 2>/dev/null || true
           fi
-          sleep 0.25
-        done
-        if systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
-          systemctl --user stop "$KRFB_SCOPE_UNIT" 2>/dev/null || true
         fi
       fi
     fi

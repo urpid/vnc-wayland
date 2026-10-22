@@ -103,6 +103,10 @@ Unter **Systemeinstellungen -> Autostart -> Hinzufuegen -> Anmeldeskript hinzufu
 
 Die Script-Version startet `krfb` bei der ersten VNC-Verbindung mit `--nodialog`. Wenn die vom Listener gestartete Instanz keine VNC-Clients mehr bedient, beendet das Script sie sauber, damit die PipeWire-Bildschirmaufnahme nicht im Leerlauf weiterlaeuft. Bei der naechsten Verbindung startet es `krfb` neu. Bereits laufende, separat gestartete KRFB-Instanzen werden dabei nicht durch diese Bereinigung beendet. Die Script-Version verwendet nicht `krfb-wayland-server.service`; fuer den laufenden `krfb`-Prozess wird eine nicht installierte, kurzlebige Scope-Unit erzeugt. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
 
+Script-Listener im KDE-Autostart und systemd-Socket sind alternative Betriebsarten. Beide verwenden standardmaessig Port `5900`; deshalb darf jeweils nur einer aktiv sein.
+
+Beide Betriebsarten verwenden `start_krfb_wayland_ondemand.sh`: Der Script-Listener ruft es mit `--script` auf, die systemd-Units verwenden `--socket` fuer die Verbindung und `--server` fuer den KRFB-Dienst.
+
 ## Verbinden
 
 Mit dem VNC-Client auf `host:5900` oder den gesetzten `LISTEN_PORT` verbinden.
@@ -117,6 +121,9 @@ Der Ablauf pro Verbindung ist:
 - War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
 - `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
 - Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.
+- Nach dem Verbindungsende prueft das Script alle `0,25` Sekunden auf noch bestehende TCP-Verbindungen am internen KRFB-Port. Sobald keine mehr bestehen, beendet es eine von dieser Verbindung gestartete KRFB-Instanz ueber D-Bus. Nach bis zu fuenf Sekunden stoppt es bei Bedarf deren eigene Scope-Unit. Der Listener bleibt aktiv.
+- Schlaegt die Verbindungspruefung fehl, bleibt KRFB aktiv und das Script protokolliert den Fehler.
+- Bei einem TCP-Abbruch waehrend der Weiterleitung sowie bei `HUP`, `INT` und `TERM` in dieser Phase beendet der Verbindungshandler seine Weiterleitung und fuehrt die Bereinigung aus.
 
 Die Wake-Pruefung gilt fuer alle verbundenen und aktivierten DRM-Ausgaenge.
 

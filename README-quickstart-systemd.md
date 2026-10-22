@@ -74,6 +74,8 @@ ln -sf ~/.local/lib/krfb-wayland/krfb-wayland@.service ~/.config/systemd/user/kr
 systemctl --user daemon-reload
 ```
 
+Nach einer Aktualisierung der verlinkten Unit-Dateien ebenfalls `systemctl --user daemon-reload` ausfuehren, damit systemd geaenderte Parameter wie die Stop-Zeit uebernimmt.
+
 ## krfb einmalig einrichten
 
 ```bash
@@ -91,7 +93,7 @@ In `krfb`:
 
 Die gewuenschte Passwort-Deaktivierung ist noch nicht umgesetzt. Das unveraenderte `krfb` erzwingt VNC-Authentifizierung und bietet dafuer keine Einstellung. Ohne Quellcode-Aenderung verlangt es entweder sein angezeigtes Sitzungskennwort mit lokaler Bestaetigung oder ein Passwort fuer den unbeaufsichtigten Zugriff.
 
-Danach das `krfb`-Fenster mit **X** schliessen. Im Setup-Modus beendet das den Prozess vollstaendig. Der Verbindungs-Listener startet `krfb` spaeter ohne Hauptfenster im Tray als `krfb-wayland-server.service`.
+Danach das `krfb`-Fenster mit **X** schliessen. Im Setup-Modus beendet das den Prozess vollstaendig. Der Verbindungs-Listener startet `krfb` spaeter ohne Hauptfenster als `krfb-wayland-server.service`. Nach dem Ende der letzten VNC-Verbindung stoppt das Verbindungsscript diesen Dienst, damit auch die PipeWire-Bildschirmaufnahme endet. Das gilt auch, wenn der Dienst beim Verbindungsaufbau bereits lief. Der Socket bleibt aktiv und startet den Dienst bei der naechsten Verbindung erneut.
 
 ## Firewall konfigurieren
 
@@ -110,6 +112,10 @@ sudo ufw deny 5901/tcp
 systemctl --user enable --now krfb-wayland.socket
 ```
 
+Script-Listener im KDE-Autostart und systemd-Socket sind alternative Betriebsarten. Beide verwenden standardmaessig Port `5900`; deshalb darf jeweils nur einer aktiv sein.
+
+Beide Betriebsarten verwenden `start_krfb_wayland_ondemand.sh`: Der Script-Listener ruft es mit `--script` auf, die systemd-Units verwenden `--socket` fuer die Verbindung und `--server` fuer den KRFB-Dienst.
+
 ## Verbinden
 
 Mit dem VNC-Client auf `host:5900` verbinden.
@@ -124,6 +130,9 @@ Der Ablauf pro Verbindung ist:
 - War kein Monitor im Standby, startet das Script `krfb` nur, wenn sein interner Port nicht verfuegbar ist.
 - `socat` leitet die unveraenderte VNC-Verbindung an `krfb` auf `127.0.0.1:5901` weiter.
 - Bildschirmaufnahme sowie Maus- und Tastatureingaben laufen vollstaendig ueber `krfb` und das KDE-Portal.
+- Nach dem Verbindungsende prueft das Script alle `0,25` Sekunden auf noch bestehende TCP-Verbindungen am internen KRFB-Port. Sobald keine mehr bestehen, stoppt es `krfb-wayland-server.service`. Dessen Stop-Behandlung beendet KRFB zuerst ueber D-Bus; falls noetig folgen `TERM` und `KILL`.
+- Schlaegt die Verbindungspruefung fehl, bleibt KRFB aktiv und das Script protokolliert den Fehler.
+- Bei einem TCP-Abbruch waehrend der Weiterleitung sowie bei `HUP`, `INT` und `TERM` in dieser Phase beendet der Verbindungshandler seine Weiterleitung und fuehrt die Bereinigung aus. Die Verbindungs-Unit erlaubt dafuer bis zu 20 Sekunden Stop-Zeit; der Server-Dienst hat weiterhin 15 Sekunden.
 
 Die Wake-Pruefung gilt fuer alle verbundenen und aktivierten DRM-Ausgaenge.
 
@@ -136,5 +145,7 @@ journalctl --user -u krfb-wayland.socket
 journalctl --user -u krfb-wayland-server.service
 journalctl --user -u 'krfb-wayland@*'
 ```
+
+Ohne VNC-Client ist `krfb-wayland-server.service` nach dem automatischen Stop normalerweise `inactive`; `krfb-wayland.socket` bleibt aktiv.
 
 Fuer jede angenommene VNC-Verbindung protokolliert `krfb-wayland@.service` den Zeitpunkt, die Client-Adresse, den Startmodus und den Zustand aller DRM-Ausgaenge vor dem Wake-Befehl.
