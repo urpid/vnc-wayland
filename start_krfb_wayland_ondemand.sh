@@ -53,6 +53,7 @@ start_krfb_in_portal_scope() {
   # xdg-desktop-portal derives the host application ID from this scope name.
   # Qt must not register the already associated D-Bus connection a second time.
   local scope="app-KDE-org.kde.krfb-$BASHPID"
+  KRFB_SCOPE_UNIT="$scope.scope"
 
   if [[ "$mode" == "nodialog" ]]; then
     systemd-run --user --scope --collect --quiet --unit="$scope" \
@@ -297,6 +298,8 @@ run_krfb_server() {
 
 run_connection_session() {
   local start_mode="$1"
+  local KRFB_SCOPE_UNIT=""
+  local krfb_started_by_session=0
   local client_address="${SOCAT_PEERADDR:-${REMOTE_ADDR:-unknown}}"
   local client_port="${SOCAT_PEERPORT:-${REMOTE_PORT:-unknown}}"
   local client="$client_address:$client_port"
@@ -315,9 +318,7 @@ run_connection_session() {
     "$(date --iso-8601=seconds)" "$client" "$start_mode" "$monitor_state" "$(describe_outputs)" >&2
 
   require_commands krfb kwriteconfig6 pgrep pkill qdbus6 socat ss systemd-run
-  if [[ "$start_mode" == "systemd" ]]; then
-    require_commands systemctl
-  fi
+  require_commands systemctl
   validate_port LISTEN_PORT "$LISTEN_PORT"
   validate_port KRFB_PORT "$KRFB_PORT"
   validate_positive_integer KRFB_START_TIMEOUT "$KRFB_START_TIMEOUT"
@@ -343,12 +344,54 @@ run_connection_session() {
     wait_until_outputs_active
     echo "Monitor is active; restarting krfb with a fresh PipeWire session." >&2
     restart_krfb "$start_mode"
+    if [[ "$start_mode" == "direct" ]]; then
+      krfb_started_by_session=1
+    fi
   elif ! krfb_port_ready; then
     echo "krfb is not available on port $KRFB_PORT; starting it." >&2
     restart_krfb "$start_mode"
+    if [[ "$start_mode" == "direct" ]]; then
+      krfb_started_by_session=1
+    fi
   fi
 
-  exec socat STDIO "TCP:${KRFB_HOST}:${KRFB_PORT},nodelay"
+  local proxy_status=0
+  socat STDIO "TCP:${KRFB_HOST}:${KRFB_PORT},nodelay" || proxy_status=$?
+
+  if [[ "$start_mode" == "direct" ]] && (( krfb_started_by_session )); then
+    local vnc_connections
+    local connections_check_ok=1
+    if ! vnc_connections="$(ss -H -tn state established "sport = :$KRFB_PORT")"; then
+      echo "Could not check for remaining VNC clients; leaving krfb running." >&2
+      connections_check_ok=0
+    else
+      while [[ -n "$vnc_connections" ]]; do
+        sleep 0.25
+        if ! vnc_connections="$(ss -H -tn state established "sport = :$KRFB_PORT")"; then
+          echo "Could not check for remaining VNC clients; leaving krfb running." >&2
+          connections_check_ok=0
+          break
+        fi
+      done
+
+      if (( connections_check_ok )) && [[ -z "$vnc_connections" ]]; then
+        echo "No VNC clients remain; stopping listener-started krfb." >&2
+        qdbus6 org.kde.krfb /MainApplication org.qtproject.Qt.QCoreApplication.quit >/dev/null 2>&1 || true
+        local attempt
+        for ((attempt = 0; attempt < 20; attempt++)); do
+          if ! systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
+            break
+          fi
+          sleep 0.25
+        done
+        if systemctl --user is-active --quiet "$KRFB_SCOPE_UNIT"; then
+          systemctl --user stop "$KRFB_SCOPE_UNIT" 2>/dev/null || true
+        fi
+      fi
+    fi
+  fi
+
+  return "$proxy_status"
 }
 
 usage() {

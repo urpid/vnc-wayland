@@ -101,7 +101,7 @@ Der interne `krfb`-Port bleibt dabei `5901`.
 
 Unter **Systemeinstellungen -> Autostart -> Hinzufuegen -> Anmeldeskript hinzufuegen** die Datei `start_krfb_wayland_listener.sh` direkt aus diesem Projektordner auswaehlen.
 
-Die Script-Version startet `krfb` bei der ersten VNC-Verbindung mit `--nodialog` im Tray. Sie verwendet nicht `krfb-wayland-server.service`; lediglich fuer den laufenden `krfb`-Prozess wird eine nicht installierte, kurzlebige Scope-Unit erzeugt. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
+Die Script-Version startet `krfb` bei der ersten VNC-Verbindung mit `--nodialog`. Wenn die vom Listener gestartete Instanz keine VNC-Clients mehr bedient, beendet das Script sie sauber, damit die PipeWire-Bildschirmaufnahme nicht im Leerlauf weiterlaeuft. Bei der naechsten Verbindung startet es `krfb` neu. Bereits laufende, separat gestartete KRFB-Instanzen werden dabei nicht durch diese Bereinigung beendet. Die Script-Version verwendet nicht `krfb-wayland-server.service`; fuer den laufenden `krfb`-Prozess wird eine nicht installierte, kurzlebige Scope-Unit erzeugt. KDE startet das Anmeldeskript einmal; falls der Listener selbst endet, wird er nicht automatisch neu gestartet.
 
 ## Verbinden
 
